@@ -1,15 +1,19 @@
 # coding: utf8
 
-from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, Markup, Response, json
+from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, Markup, Response, json, jsonify
 import redis
 import time
 from datetime import datetime, timedelta
 import os
 import base64
+
 import codecs
 from base64 import b64encode, b64decode, urlsafe_b64decode, urlsafe_b64encode
 
 app = Flask(__name__)
+
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
+
 
 # key for cookie safety. Shal be overridden using ENV var SECRET_KEY
 app.secret_key = os.getenv("SECRET_KEY", "lasfuoi3ro8w7gfow3bwiubdwoeg7p23r8g23rg")
@@ -28,9 +32,9 @@ def login():
     if request.method == 'POST':
         # TODO: test connection, handle failures
         host = request.form["host"]
-        # host = host.encode('utf-8')
-        # host = base64.urlsafe_b64encode(host)
-        # host_decode = base64.urlsafe_b64decode(host.encode("utf8"))
+        host = host.encode('utf-8')
+        host = base64.urlsafe_b64encode(host)
+        # host = base64.urlsafe_b64decode(host.encode("utf8"))
         # host = hash(host)
         # host = base64.urlsafe_b64encode(bytes(host))
         port = int(request.form["port"])
@@ -48,7 +52,7 @@ def server_db(host, port, db):
     """
     List all databases and show info on server
     """
-    # host = base64.urlsafe_b64decode(host.encode("utf8"))
+    host = base64.urlsafe_b64decode(host.encode("utf8"))
     # host = hash(host)
     s = time.time()
     r = redis.StrictRedis(host=host, port=port, db=0)
@@ -60,7 +64,7 @@ def server_db(host, port, db):
         db=db,
         info=info,
         dbsize=dbsize,
-        serverinfo_meta=serverinfo_meta,
+        # serverinfo_meta=serverinfo_meta,
         duration=time.time()-s)
 
 
@@ -69,6 +73,7 @@ def keys(host, port, db):
     """
     List keys for one database
     """
+    host = base64.urlsafe_b64decode(host.encode("utf8"))
     s = time.time()
     # host = base64.urlsafe_b64decode(host.encode("utf8"))
     r = redis.StrictRedis(host=host, port=port, db=db)
@@ -85,12 +90,15 @@ def keys(host, port, db):
         return redirect(request.url)
     else:
         offset = int(request.args.get("offset", "0"))
-        perpage = int(request.args.get("perpage", "10"))
+        perpage = int(request.args.get("perpage", "15"))
         pattern = request.args.get('pattern', '*')
         dbsize = r.dbsize()
         keys = sorted(r.keys(pattern))
-        # type_keys = type(keys)
         limited_keys = keys[offset:(perpage+offset)]
+        # limited_keys_satu = [keys_result.decode('utf-8') for keys_result in limited_keys]
+        # limited_keys = bytes(limited_keys_satu.decode('utf-8'))
+
+        # limited_keys = base64.urlsafe_b64decode(limited_keys.encode("utf8"))
         types = {}
         for key in limited_keys:
             types[key] = r.type(key)
@@ -105,7 +113,8 @@ def keys(host, port, db):
             perpage=perpage,
             pattern=pattern,
             num_keys=len(keys),
-            duration=time.time()-s)
+            duration=time.time()-s
+        )
 
 
 @app.route("/<host>:<int:port>/<int:db>/keys/<key>/")
@@ -114,6 +123,7 @@ def key(host, port, db, key):
     Show a specific key.
     key is expected to be URL-safe base64 encoded
     """
+    host = base64.urlsafe_b64decode(host.encode("utf8"))
     key = base64.urlsafe_b64decode(key.encode("utf8"))
     key = key.decode('utf-8')
 
@@ -138,6 +148,10 @@ def key(host, port, db, key):
     string = "b'string'"
     if t == "string":
         val = r.get(key).decode('utf-8', 'replace')
+        # val = json.loads(val)
+        val = json.loads(val)
+        val = json.dumps(val, indent=4)
+        # val = jsonify(val)
     elif t == "list":
         val = r.lrange(key, 0, -1)
     elif t == "hash":
@@ -159,7 +173,10 @@ def key(host, port, db, key):
         ttl=ttl / 1000.0,
         now=datetime.utcnow(),
         expiration=datetime.utcnow() + timedelta(seconds=ttl / 1000.0),
-        duration=time.time()-s)
+        duration=time.time()-s
+        # context={
+        #     'value'=json.dumps(val)
+        )
 
 
 @app.route("/<host>:<int:port>/<int:db>/pubsub/")
@@ -203,89 +220,8 @@ def urlsafe_base64_encode(s):
     # s = s.decode('utf-8')
     s = base64.urlsafe_b64encode(s)
     s = s.decode("utf-8")
-    # print(s)
     return Markup(s)
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", debug=True, port=5001, threaded=True)
-
-
-# from flask import Flask
-# import os
-# import flask_login
-#
-# app = Flask(__name__)
-#
-# # key for cookie safety. Shal be overridden using ENV var SECRET_KEY
-# app.secret_key = os.getenv("SECRET_KEY", "lasfuoi3ro8w7gfow3bwiubdwoeg7p23r8g23rg")
-#
-# login_manager = flask_login.LoginManager()
-#
-# login_manager.init_app(app)
-#
-# users = {'foo@bar.tld': {'password': 'secret'}}
-#
-# class User(flask_login.UserMixin):
-#     pass
-#
-#
-# @login_manager.user_loader
-# def user_loader(email):
-#     if email not in users:
-#         return
-#
-#     user = User()
-#     user.id = email
-#     return user
-#
-#
-# @login_manager.request_loader
-# def request_loader(request):
-#     email = request.form.get('email')
-#     if email not in users:
-#         return
-#
-#     user = User()
-#     user.id = email
-#
-#     # DO NOT ever store passwords in plaintext and always compare password
-#     # hashes using constant-time comparison!
-#     user.is_authenticated = request.form['password'] == users[email]['password']
-#
-#     return user
-#
-# @app.route('/login', methods=['GET', 'POST'])
-# def login():
-#     if flask.request.method == 'GET':
-#         return '''
-#                <form action='login' method='POST'>
-#                 <input type='text' name='email' id='email' placeholder='email'/>
-#                 <input type='password' name='password' id='password' placeholder='password'/>
-#                 <input type='submit' name='submit'/>
-#                </form>
-#                '''
-#
-#     email = flask.request.form['email']
-#     if flask.request.form['password'] == users[email]['password']:
-#         user = User()
-#         user.id = email
-#         flask_login.login_user(user)
-#         return flask.redirect(flask.url_for('protected'))
-#
-#     return 'Bad login'
-#
-#
-# @app.route('/protected')
-# @flask_login.login_required
-# def protected():
-#     return 'Logged in as: ' + flask_login.current_user.id
-#
-# @app.route('/logout')
-# def logout():
-#     flask_login.logout_user()
-#     return 'Logged out'
-#
-# @login_manager.unauthorized_handler
-# def unauthorized_handler():
-#     return 'Unauthorized'
