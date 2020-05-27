@@ -1,15 +1,19 @@
 # coding: utf8
 
-from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, Markup, Response, json
+from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, Markup, Response, json, jsonify
 import redis
 import time
 from datetime import datetime, timedelta
 import os
 import base64
+
 import codecs
 from base64 import b64encode, b64decode, urlsafe_b64decode, urlsafe_b64encode
 
 app = Flask(__name__)
+
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True
+
 
 # key for cookie safety. Shal be overridden using ENV var SECRET_KEY
 app.secret_key = os.getenv("SECRET_KEY", "lasfuoi3ro8w7gfow3bwiubdwoeg7p23r8g23rg")
@@ -86,13 +90,15 @@ def keys(host, port, db):
         return redirect(request.url)
     else:
         offset = int(request.args.get("offset", "0"))
-        perpage = int(request.args.get("perpage", "10"))
+        perpage = int(request.args.get("perpage", "15"))
         pattern = request.args.get('pattern', '*')
         dbsize = r.dbsize()
         keys = sorted(r.keys(pattern))
         limited_keys = keys[offset:(perpage+offset)]
+        # limited_keys_satu = [keys_result.decode('utf-8') for keys_result in limited_keys]
+        # limited_keys = bytes(limited_keys_satu.decode('utf-8'))
+
         # limited_keys = base64.urlsafe_b64decode(limited_keys.encode("utf8"))
-        # limited_keys = str(limited_keys.decode('utf-8'))
         types = {}
         for key in limited_keys:
             types[key] = r.type(key)
@@ -107,7 +113,8 @@ def keys(host, port, db):
             perpage=perpage,
             pattern=pattern,
             num_keys=len(keys),
-            duration=time.time()-s)
+            duration=time.time()-s
+        )
 
 
 @app.route("/<host>:<int:port>/<int:db>/keys/<key>/")
@@ -141,6 +148,10 @@ def key(host, port, db, key):
     string = "b'string'"
     if t == "string":
         val = r.get(key).decode('utf-8', 'replace')
+        # val = json.loads(val)
+        val = json.loads(val)
+        val = json.dumps(val, indent=4)
+        # val = jsonify(val)
     elif t == "list":
         val = r.lrange(key, 0, -1)
     elif t == "hash":
@@ -162,7 +173,10 @@ def key(host, port, db, key):
         ttl=ttl / 1000.0,
         now=datetime.utcnow(),
         expiration=datetime.utcnow() + timedelta(seconds=ttl / 1000.0),
-        duration=time.time()-s)
+        duration=time.time()-s
+        # context={
+        #     'value'=json.dumps(val)
+        )
 
 
 @app.route("/<host>:<int:port>/<int:db>/pubsub/")
@@ -206,7 +220,6 @@ def urlsafe_base64_encode(s):
     # s = s.decode('utf-8')
     s = base64.urlsafe_b64encode(s)
     s = s.decode("utf-8")
-    # print(s)
     return Markup(s)
 
 
